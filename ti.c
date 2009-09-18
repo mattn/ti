@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <getopt.h>
+#ifndef _WIN32
 #include <pwd.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -28,6 +29,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/param.h>
+#else
+#include <stdarg.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/param.h>
+#include "bsd_compat.h"
+#endif
 
 #include <expat.h>
 #include <curl/curl.h>
@@ -441,6 +449,7 @@ ti_open_io_files(ti_fds *fds, const char *prefix)
 	return 0;
 }
 
+#ifndef _WIN32
 static int
 ti_socket_ready(int fd)
 {
@@ -459,6 +468,23 @@ ti_socket_ready(int fd)
 	else
 		return 1;
 }
+#else
+static int
+ti_socket_ready(int fd)
+{
+  fd_set fds;
+  int nfds;
+  struct timeval to;
+
+  FD_ZERO(&fds);
+  FD_SET(fd, &fds);
+  to.tv_sec = 0;
+  to.tv_usec = 0;
+  nfds = select(1, &fds, NULL, NULL, &to);
+  if (FD_ISSET(fd, &fds)) return 1;
+  return 0;
+}
+#endif
 
 static int
 ti_read_line(int fd, char *buf, size_t len)
@@ -531,6 +557,19 @@ ti_process_cmd(ti_fds *fds, const char *user, const char *passwd)
 	char friend[256];
 
 	ti_read_line(fds->input, line, sizeof(line));
+#ifdef _WIN32
+	// on  win32, fifo is not supported. this is workaround as ...orz
+	{
+		char path[MAXPATHLEN];
+		close(fds->input);
+		snprintf(path, sizeof(path), "%s/in", fds->prefix);
+		unlink(path);
+		if ((fds->input = open(path, O_RDONLY | O_NONBLOCK | O_CREAT, S_IWUSR)) == -1) {
+			perror("ti_process_cmd(\"in\")");
+			exit(EXIT_FAILURE);
+		}
+	}
+#endif
 
 	if (ti_is_responce(friend, sizeof(friend), line)) {
 		char resp[256];
@@ -599,11 +638,21 @@ main(int argc, char *argv[])
 		passwd = getpass("Password: ");
 
 	if (!prefix) {
+#ifndef _WIN32
 		struct passwd *pw;
 
 		pw = getpwuid(getuid());
 		asprintf(&prefix, "%s/ti", pw->pw_dir);
 		endpwent();
+#else
+		char* env = getenv("HOME");
+		if (!env) env = getenv("USERPROFILE");
+		if (env) {
+			prefix = malloc(strlen(env) + 4);
+			strcpy(prefix, env);
+			strcat(prefix, "/ti");
+		}
+#endif
 	}
 
 	ti_make_io_dir(prefix);

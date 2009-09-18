@@ -1,0 +1,7 @@
+EXPAT_INC=c:/progra~1/expat2~1.1/source/lib
+EXPAT_LIB=c:/progra~1/expat2~1.1/bin
+
+all : ti.exe
+
+ti.exe : ti.c
+	gcc -o ti.exe -I$(EXPAT_INC) ti.c -lws2_32 -lcurldll -L$(EXPAT_LIB) -lexpat 
